@@ -1,15 +1,26 @@
-.pycache/
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# Trained model checkpoints
+*.pt
+*.pth
+checkpoints/
+
+# Profiling and benchmark outputs
+bigram_trace_*.json
+bigram_benchmark_results.csv
+.profiler/
+
+# Python and test caches
+.pytest_cache/
+
+# IDE and OS files
 .vscode/
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.development
-.env.test
-.env.production
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.__pycache__
+.idea/
+.DS_Store
+Thumbs.db
