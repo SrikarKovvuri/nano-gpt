@@ -1,6 +1,5 @@
 
 import torch
-
 # 1. Load the dataset
 with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
@@ -66,4 +65,50 @@ length = data.size(0)
 training_amt = int(0.9 * length)
 
 training_data = data[:training_amt]
-test_data = data[training_amt:]
+val_data = data[training_amt:]
+
+
+#Now we want to split into batches. We don't want to pass everything at once bc:
+
+#1. Self-attention is rlly rlly expensive. THis would eat up insane computation and memory
+
+#2. We don't need the entire context. 
+
+#3. smaller sequences enable batching. This allows the gpu to process three independent
+#sequences in parallel
+
+
+
+
+def get_batch(split):
+    batch_size = 32
+    block_size = 64
+
+    #we don't wanna train on first 64 characters. We want to sample random subsequences.
+    source = None
+    if split == "train":
+        source = training_data
+    else:
+        source = val_data
+    #arguments are start, end, and how many output do you want in 1D tensor
+    starts = torch.randint(0,len(source) - block_size, (batch_size,))
+    #this picks random integer from 0 - 99
+    x = []
+    y = []
+    for start in starts:
+        curr_x = source[start:start+block_size]
+        curr_y = source[start + 1: start + block_size + 1]
+
+        x.append(curr_x)
+        y.append(curr_y)
+
+    x = torch.stack(x)
+    y = torch.stack(y)
+
+    return x, y
+
+
+
+
+
+
