@@ -1,0 +1,182 @@
+# nanoGPT — Learning Language Models from Scratch
+
+A hands-on implementation of a **character-level language model in PyTorch**, built to understand the mechanics of model training, autoregressive inference, and inference performance engineering before moving on to a full Transformer.
+
+
+## What was done:
+
+- A character-level tokenizer for the Tiny Shakespeare dataset
+- Character-to-ID and ID-to-character lookup tables
+- Random training/validation batch sampling (`batch_size=32`, `block_size=64`)
+- A bigram language model using `nn.Embedding`
+- Training with cross-entropy, PyTorch autograd, and AdamW
+- Validation, model checkpoint saving/loading, and autoregressive text generation
+- A repeatable CPU benchmark and PyTorch Profiler experiment
+
+The bigram model learns **P(next character | current character)**. It cannot use earlier context in a sentence, so its generated text is typically English-like but incoherent. That limitation motivates the next stage: self-attention.
+
+## Project layout
+
+```text
+nanoGPT/
+├── data.py                 # Tokenization and random batch sampling
+├── model.py                # BigramLanguageModel and generate()
+├── train_bigram.py         # Training and validation; saves bigram.pt
+├── inference_bigram.py     # Interactive prompt -> generated text
+├── benchmark_bigram.py     # Brute-force vs. optimized latency benchmark
+├── profile_bigram.py       # PyTorch operator profiling
+├── input.txt               # Tiny Shakespeare text
+└── bigram.pt               # Trained checkpoint (local, gitignored)
+```
+
+> File names for the training and inference scripts may differ in my local project; update the commands below to match them. The benchmark and profiler scripts are named as shown.
+
+## Getting started
+
+Requires Python and PyTorch. From the project directory:
+
+```powershell
+python -m pip install torch
+```
+
+Download [Tiny Shakespeare](https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt) and save it as `input.txt`. The dataset has **1,115,394 characters** and this character-level tokenizer identifies **65 unique characters**.
+
+Train the model (creates `bigram.pt`):
+
+```powershell
+python train_bigram.py
+```
+
+Generate text using the saved weights, without retraining:
+
+```powershell
+python inference_bigram.py
+```
+
+Example prompt: `Romeo`. Inference samples 200 new characters in the current interactive script. The output is a continuation, **not a meaningful answer to a question**: the bigram model only considers the final character.
+
+### Model and training configuration
+
+| Setting | Value |
+| --- | ---: |
+| Vocabulary | 65 characters |
+| Parameters | 4,225 (`65 × 65` embedding table) |
+| Batch size | 32 sequences |
+| Block size | 64 characters |
+| Optimizer | AdamW |
+| Learning rate | `1e-3` |
+| Training iterations | 5,000 |
+| Validation | 100 sampled batches |
+| Observed validation loss | **2.5231** |
+
+The observed validation loss is from one training run. Training results will vary with random initialization and sampling.
+
+## Inference performance experiment
+
+### Question
+
+**Does processing the entire growing context at every decoding step waste time, and how does the effect change with prompt length?**
+
+Both implementations use the **same trained weights**, sample one new character per step, and return the same generated text when initialized with the same random seed.
+
+**Brute force** processes every token generated so far:
+
+```python
+logits = model(context)
+next_logits = logits[:, -1, :]
+```
+
+**Optimized** processes only the final character, because a bigram model does not depend on earlier characters:
+
+```python
+logits = model(context[:, -1:])
+next_logits = logits[:, -1, :]
+```
+
+The second approach preserves the next-token probability distribution, while avoiding redundant embedding lookups. Both versions still use `softmax`, `torch.multinomial`, and repeated `torch.cat` to append tokens.
+
+### Benchmark methodology
+
+- **Hardware path:** local CPU execution (not a GPU benchmark)
+- **Workload:** 500 newly generated character tokens per run
+- **Initial prompt lengths:** 5, 500, 5,000, and 10,000 characters
+- **Trials:** 2 warmups and 7 measured trials per configuration; report the **median**
+- **Fairness:** alternating order of variants, identical model checkpoint, and random seed 42; output-equivalence assertion
+- **Timing:** includes prompt encoding, model forward passes, sampling, context concatenation, and final decoding; excludes loading model weights
+
+Run the same experiment:
+
+```powershell
+python benchmark_bigram.py
+```
+
+Or customize it:
+
+```powershell
+python benchmark_bigram.py --tokens 500 --lengths 5 500 5000 10000 --trials 7 --warmups 2
+```
+
+### Measured benchmark results
+
+| Initial prompt | Brute-force median | Optimized median | Brute-force tok/s | Optimized tok/s | Speedup |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 chars | 48.254 ms | 51.272 ms | 10,362 | 9,752 | **0.941×** |
+| 500 chars | 127.158 ms | 54.704 ms | 3,932 | 9,140 | **2.324×** |
+| 5,000 chars | 146.701 ms | 56.643 ms | 3,408 | 8,827 | **2.590×** |
+| 10,000 chars | 182.723 ms | 54.772 ms | 2,736 | 9,129 | **3.336×** |
+
+**Main result: 3.34× lower median end-to-end latency at a 10,000-character prompt** for this CPU workload.
+
+The original implementation gets slower with longer prompts, while the optimized version stays roughly in the **50–57 ms** range over the prompt lengths tested. At five characters, the optimized run measured slightly slower; the trial ranges overlap, so this does **not** establish a real regression.
+
+For the 10,000-character prompt, the brute-force approach processes **5,124,750 token positions** through the embedding lookup across 500 decode steps; the optimized approach processes just **500**. That is a dramatic reduction in work, but not a comparable reduction in end-to-end latency: Python overhead, token sampling, and tensor concatenation remain.
+
+The benchmark script saves raw summary results to `bigram_benchmark_results.csv`.
+
+## PyTorch profiling
+
+The benchmark shows **how much** time changed. The profiler helps investigate **where** time is spent.
+
+Profile each variant with a 5,000-character prompt and 100 generated tokens:
+
+```powershell
+python profile_bigram.py --mode brute --prompt-length 5000 --tokens 100
+python profile_bigram.py --mode optimized --prompt-length 5000 --tokens 100
+```
+
+### Measured operation groups
+
+| Operation group | Brute force CPU time | Optimized CPU time |
+| --- | ---: | ---: |
+| Embedding forward | 31.178 ms | **8.960 ms** |
+| Multinomial sampling | 24.562 ms | 19.753 ms |
+| Tensor concatenation | 6.377 ms | 5.951 ms |
+| Selecting final logits | 5.746 ms | 3.869 ms |
+| Softmax | 3.262 ms | 2.767 ms |
+| Underlying `aten::index_select` | 21.196 ms | **2.748 ms** |
+
+These are **inclusive instrumented CPU times** for grouped operations; nested entries overlap, so the rows should not be summed. Profiling introduces overhead, and these numbers should not be compared directly with unprofiled benchmark latency.
+
+The profiler reported cumulative memory allocations for `aten::index_select` of approximately **125.21 Mb** in brute-force mode versus **25.39 Kb** in optimized mode (PyTorch's displayed units). These are **cumulative allocation totals, not peak memory usage**.
+
+### Takeaways
+
+1. **Context length matters for brute-force generation.** Repeatedly recomputing output for all previous characters creates unnecessary work.
+2. **The optimization removes a real bottleneck.** Embedding-forward time fell from 31.18 to 8.96 ms in the profiled workload, and long-prompt end-to-end latency improved substantially in the separate benchmark.
+3. **Bottlenecks move.** After optimizing the embedding lookup, multinomial sampling was the largest measured operation group in the optimized profile.
+4. **Less work does not imply proportional latency improvement.** Fixed overhead and other operations remain—an example of Amdahl's Law.
+5. **Benchmarking and profiling serve different purposes.** Use repeatable, unprofiled timings to measure performance and the profiler to investigate causes.
+
+Profiler traces are exported as `bigram_trace_<mode>_<prompt_length>.json`. To inspect the operation timeline, open the trace in [Perfetto UI](https://ui.perfetto.dev/).
+
+## What's next
+
+- Implement causal self-attention with explicit Q/K/V tensor-shape reasoning
+- Add multi-head attention, positional embeddings, feedforward layers, residual connections, and layer normalization
+- Train and evaluate the resulting character-level GPT against the bigram baseline
+- Implement KV caching and benchmark incremental decoding
+- Later: explore batching, GPU profiling, and lower-level kernel optimizations
+
+## Notes
+
+This is a **learning project**, not a production inference server. In particular, the 8–10k generated characters/tokens per second reported here are for a tiny CPU bigram lookup model, **not** a Transformer or a general-purpose LLM. CPU hardware specifics were not recorded for this experiment, so performance results are illustrative of this local environment and should not be treated as broadly reproducible across machines.
