@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class TransformerLanguageModel(nn.Module):
-    def __init__(self, vocab_size, block_size = 64, n_embd = 64):
+    def __init__(self, vocab_size, block_size = 64, n_embd = 64, num_layers = 3, num_heads = 4):
         super().__init__()
 
         #lookup table for each character
@@ -12,6 +12,16 @@ class TransformerLanguageModel(nn.Module):
         #lookup table for each position
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
 
+        self.blocks = nn.ModuleList()
+
+        for i in range(num_layers):
+            self.blocks.append(TransformerBlock(n_embd, block_size, num_heads))
+        
+        #final layer norm
+        self.ln_f = nn.LayerNorm(n_embd)
+
+        #project each token represenation into vocab digits
+        self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, input_token_ids):
         B, T = input_token_ids.shape
@@ -27,6 +37,14 @@ class TransformerLanguageModel(nn.Module):
         x = token_embeddings + position_embeddings # (B, T, n_embd)
 
         #apply the transformer blocks #(B, T, n_embd)
+        for block in self.blocks:
+            x = block(x)
+        
+        #final layer norm
+        x = self.ln_f(x)
+        #project each token represenation into vocab digits
+        logits = self.lm_head(x) # (B, T, vocab_size)
+        return logits
 
 class TransformerHead(nn.Module):
     #init always defines the learanble layers and parameters
@@ -66,23 +84,39 @@ class TransformerHead(nn.Module):
 
 
 
+
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads, head_size, block_size):
+    def __init__(self, num_heads, n_embd, block_size):
         super().__init__()
 
-        heads_size = n_embd // num_heads
+        assert n_embd % num_heads == 0
+        head_size = n_embd // num_heads
+
+        #create the heads
+        self.heads = nn.ModuleList()
 
         for i in range(num_heads):
-            self.heads.append(TransformerHead(n_embd, head_size, block_size))
-        
-        self.heads = torch.stack(self.heads)
-    
+            self.heads.append(
+                TransformerHead(n_embd, head_size, block_size)
+            )
+
+        #project concatenated heads back into embedding space
+        self.proj = nn.Linear(n_embd, n_embd)
+
     def forward(self, x):
         head_outputs = []
+
         for head in self.heads:
             head_outputs.append(head(x))
 
-        return torch.cat(head_outputs, dim=-1)
+        #concatenate along the feature dimension
+        out = torch.cat(head_outputs, dim=-1)
+
+        #mix information across the heads
+        out = self.proj(out)
+
+        return out
+
 
 
 class FeedForward(nn.Module):
@@ -103,7 +137,7 @@ class TransformerBlock(nn.Module):
         super().__init__()
 
         #multi head attention
-        self.attention MultiHeadAttention(num_heads, n_embd, block_size)
+        self.attention = MultiHeadAttention(num_heads, n_embd, block_size)
 
         #ffn
         self.feed_forward = FeedForward(n_embd)
