@@ -98,6 +98,31 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+class TransformerBlock(nn.Module):
+    def __init__(self, n_embd, block_size, num_heads):
+        super().__init__()
+
+        #multi head attention
+        self.attention MultiHeadAttention(num_heads, n_embd, block_size)
+
+        #ffn
+        self.feed_forward = FeedForward(n_embd)
+
+        #layer_norm
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+
+    def forward(self, x):
+        #layer norm -> attention -> residual
+        #x_new = x_old + attention(layer_norm(x_old))
+        x = x + self.attention(self.ln1(x))
+
+        #layer norm -> ffn -> residual
+        #x_new = x_old + ffn(layer_norm(x_old))
+        x = x + self.feed_forward(self.ln2(x))
+
+        return x
+
 
 
 
