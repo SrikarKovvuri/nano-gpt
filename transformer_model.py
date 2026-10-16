@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-Cless TransfromerLanguageModel(nn.Module):
-    def __init__(self, vocab_size, block_size = 64, n-embd = 64):
+class TransformerLanguageModel(nn.Module):
+    def __init__(self, vocab_size, block_size = 64, n_embd = 64):
         super().__init__()
 
         #lookup table for each character
@@ -32,9 +33,9 @@ class TransformerHead(nn.Module):
     def __init__(self, n_embd, head_size, block_size):
         super().__init__()
 
-        self.query = nn.linear(n_embd, head_size, bias = False) # (B, T, head_size)
-        self.key = nn.linear(n_embd, head_size, bias = False)
-        self.value = nn.linear(n_embd, head_size, bias = False)
+        self.query = nn.Linear(n_embd, head_size, bias = False) # (B, T, head_size)
+        self.key = nn.Linear(n_embd, head_size, bias = False)
+        self.value = nn.Linear(n_embd, head_size, bias = False)
 
         #create a mask
         # self.register buffer is used so we can move it to cuda if needed. torch.tril upper diagonal is zeroes. torch.ones is justa  block of ones.
@@ -42,12 +43,50 @@ class TransformerHead(nn.Module):
 
     #forward mererely uses those layers and parameters to perfrom computations on the input
     def forward(self, x):
+        B, T, C = x.shape
+        
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
-        #everything above is (B, T, n_embd)
+        #everything above is (B, T, head_size)
 
         #compute attention scores
-        scores = 
-`
+        #S = QK^T
+        scores = q @ k.transpose(-2, -1) # (B, T, head_size) @ (B, head_size, T) = (B, T, T)
+        #scale the scores by the square root of the head size
+        scores = scores * (k.shape[-1]) ** -0.5
+        #mask the scores. We slice the mask to the same size as the ampunt of input tokens
+        scores = scores.masked_fill(self.mask[:T, :T] == 0, float('-inf'))
+
+        #softmax the scores
+        weights = F.softmax(scores, dim=-1) # (B, T, T)
+        #apply the weights to the values
+        out = weights @ v # (B, T, T) @ (B, T, head_size) = (B, T, head_size)
+        return out
+
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, head_size, block_size):
+        super().__init__()
+
+        heads_size = n_embd // num_heads
+
+        for i in range(num_heads):
+            self.heads.append(TransformerHead(n_embd, head_size, block_size))
+        
+        self.heads = torch.stack(self.heads)
+    
+    def forward(self, x):
+        head_outputs = []
+        for head in self.heads:
+            head_outputs.append(head(x))
+
+        return torch.cat(head_outputs, dim=-1)
+
+
+
+
+
+
         
