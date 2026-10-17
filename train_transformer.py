@@ -40,7 +40,7 @@ def main():
         y = y.to(device)
 
         #forward pass
-        logits = model(x)
+        logits, _ = model(x)
 
         #reshape combine batch and sequence number so we get (2048, 65)
         B, T, C = logits.shape

@@ -102,7 +102,7 @@ def get_batch(split):
         x.append(curr_x)
         y.append(curr_y)
 
-    x = torch.stack(x)
+    x = torch.stack(x) #()
     y = torch.stack(y)
 
     return x, y
