@@ -2,9 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from transformer_data import encode, decode
+
 class TransformerLanguageModel(nn.Module):
     def __init__(self, vocab_size, block_size = 64, n_embd = 64, num_layers = 3, num_heads = 4):
         super().__init__()
+
+        self.block_size = block_size
 
         #lookup table for each character
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
@@ -45,6 +49,40 @@ class TransformerLanguageModel(nn.Module):
         #project each token represenation into vocab digits
         logits = self.lm_head(x) # (B, T, vocab_size)
         return logits
+    
+    
+    def generate(self, prompt, max_new_tokens):
+
+        ids = encode(prompt) # list of token IDs
+
+        #convert ids to tensor
+        context = torch.tensor(
+            [ids],
+            dtype=torch.long,
+            device=self.token_embedding_table.weight.device
+        )
+
+        for i in range(max_new_tokens):
+            #only use the last block_size tokens
+            context_window = context[:, -self.block_size:]
+            # (1, min(block_size, current_sequence_length))
+
+            #forward pass
+            logits = self(context_window)
+            # (1, current_window_length, vocab_size)
+
+            #we only care about the last token's prediction
+            logits = logits[:, -1, :] # (1, vocab_size)
+
+            #sample next token
+            probs = F.softmax(logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1) # (1, 1)
+
+            #concatenate the next token to the context
+            context = torch.cat([context, next_token], dim=1)
+
+        #return only generated characters
+        return decode(context[0, len(ids):].tolist())
 
 class TransformerHead(nn.Module):
     #init always defines the learanble layers and parameters

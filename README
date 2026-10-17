@@ -180,3 +180,4 @@ Profiler traces are exported as `bigram_trace_<mode>_<prompt_length>.json`. To i
 ## Notes
 
 This is a **learning project**, not a production inference server. In particular, the 8–10k generated characters/tokens per second reported here are for a tiny CPU bigram lookup model, **not** a Transformer or a general-purpose LLM. CPU hardware specifics were not recorded for this experiment, so performance results are illustrative of this local environment and should not be treated as broadly reproducible across machines.
+
